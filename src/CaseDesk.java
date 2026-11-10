@@ -15,7 +15,20 @@ import java.util.concurrent.atomic.LongAdder;
 /** AI-assisted local portfolio prototype. No real customer data or external AI calls. */
 public final class CaseDesk implements AutoCloseable {
     public enum State { OPEN, ASSIGNED, CLOSED }
-    public record Ticket(long id, String title, int priority, State state) {}
+    public static final int MAX_TITLE = 160;
+    /**
+     * Immutable ticket snapshot. The compact constructor enforces the invariants every ticket must
+     * satisfy, whether it was built from a live request or replayed from the journal, so a hand-edited
+     * journal line cannot load a ticket that {@link Store#create} would have rejected.
+     */
+    public record Ticket(long id, String title, int priority, State state) {
+        public Ticket {
+            if (title == null || title.isBlank() || title.length() > MAX_TITLE)
+                throw new IllegalArgumentException("title must contain 1-" + MAX_TITLE + " characters");
+            if (priority < 1 || priority > 5) throw new IllegalArgumentException("priority must be 1-5");
+            Objects.requireNonNull(state, "state");
+        }
+    }
     private record Submission(String title, int priority, long ticketId) {}
     public static final class Problem extends RuntimeException {
         final int status;
@@ -63,7 +76,7 @@ public final class CaseDesk implements AutoCloseable {
         }
         public synchronized Ticket create(String key, String title, int priority) {
             key = bounded(key, "key", 80);
-            title = bounded(title, "title", 160);
+            title = bounded(title, "title", MAX_TITLE);
             if (priority < 1 || priority > 5) throw new Problem(400, "priority must be 1-5");
             Submission previous = keys.get(key);
             if (previous != null) {
@@ -105,6 +118,7 @@ public final class CaseDesk implements AutoCloseable {
             switch (event.op()) {
                 case "create", "snapshot" -> {
                     if (tickets.containsKey(event.id())) throw new IllegalStateException("duplicate ticket id " + event.id());
+                    if (event.key() == null || event.key().isBlank()) throw new IllegalStateException("ticket " + event.id() + " has no idempotency key");
                     if (keys.containsKey(event.key())) throw new IllegalStateException("duplicate idempotency key " + event.key());
                     State state = event.state() == null ? State.OPEN : State.valueOf(event.state());
                     Ticket ticket = new Ticket(event.id(), event.title(), event.priority(), state);
