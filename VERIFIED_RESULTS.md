@@ -11,6 +11,7 @@ npm run test:ui
 ```
 
 - All 24 Java test groups passed locally: 11 store/concurrency groups, 7 journal groups (restart recovery, idempotency keys across restart, priority order across restart, torn tail dropped and repaired, corrupt middle line fails fast, failed write leaves state unchanged, startup compaction bounds the file), 6 HTTP groups.
+- November 10, 2026 (JDK 21, Node 22): an eighth journal group was added, "replayed tickets obey the same invariants as live ones", and all 25 groups passed.
 - All 6 Playwright browser scenarios passed locally against a `:memory:` server (Chromium headless).
 - Manual restart check: created two tickets and claimed one over HTTP, killed the process, restarted it; the server reported `2 tickets recovered`, `GET /tickets?state=ASSIGNED` returned the claimed ticket, and the journal had been compacted from three operation lines to two snapshot lines.
 

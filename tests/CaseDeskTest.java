@@ -81,6 +81,25 @@ public final class CaseDeskTest {
             try{Files.writeString(k,"{\"op\":\"close\",\"id\":7}\n");}catch(IOException e){throw new RuntimeException(e);}
             try{CaseDesk.Store.open(k).close();throw new AssertionError("expected startup failure");}catch(IOException expected){check(expected.getMessage().contains("inconsistent"));}
         });
+        test("replayed tickets obey the same invariants as live ones",()->{
+            // Each line decodes as valid JSON but describes a ticket that Store.create would reject, so startup must fail.
+            Map<String,String> bad=new LinkedHashMap<>();
+            bad.put("priority out of range","{\"op\":\"create\",\"id\":1,\"key\":\"a\",\"title\":\"ok\",\"priority\":7}\n");
+            bad.put("missing priority","{\"op\":\"create\",\"id\":1,\"key\":\"a\",\"title\":\"ok\"}\n");
+            bad.put("blank title","{\"op\":\"snapshot\",\"id\":1,\"key\":\"a\",\"title\":\"   \",\"priority\":2,\"state\":\"OPEN\"}\n");
+            bad.put("missing key","{\"op\":\"create\",\"id\":1,\"title\":\"ok\",\"priority\":2}\n");
+            bad.put("unknown state","{\"op\":\"snapshot\",\"id\":1,\"key\":\"a\",\"title\":\"ok\",\"priority\":2,\"state\":\"DONE\"}\n");
+            int n=0;
+            for(var entry:bad.entrySet()){
+                Path j=dir.resolve("invalid"+(n++)+".jsonl");
+                try{Files.writeString(j,entry.getValue());}catch(IOException e){throw new RuntimeException(e);}
+                try{CaseDesk.Store.open(j).close();throw new AssertionError("expected startup failure for "+entry.getKey());}
+                catch(IOException expected){check(expected.getMessage().contains("journal event 1 is inconsistent"));}
+            }
+            // The constructor is the last line of defense; live requests still get a 400 from the validation in create.
+            try{new CaseDesk.Ticket(1,"ok",0,CaseDesk.State.OPEN);throw new AssertionError("expected rejection");}catch(IllegalArgumentException expected){}
+            try{new CaseDesk.Ticket(1," ",3,CaseDesk.State.OPEN);throw new AssertionError("expected rejection");}catch(IllegalArgumentException expected){}
+        });
         test("failed journal write leaves state unchanged",()->{
             Path j=dir.resolve("failing.jsonl");
             class Failing extends Journal{boolean fail;Failing()throws IOException{super(j);}@Override public void append(Event e)throws IOException{if(fail)throw new IOException("disk full");super.append(e);}}
